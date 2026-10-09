@@ -1,0 +1,1 @@
+{"id":"audio","controllers":["AudioController","VoiceoverController"],"resource_keys":["R1","R2"],"purpose":"Add music and insert recorded voiceover on an audio track."}

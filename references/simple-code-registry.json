@@ -1,0 +1,831 @@
+{
+  "schema_revision": 1,
+  "description": "Skill-owned Objective-C and compile-verified Swift units with ordered recipes. Objective-C public declarations remain signature truth.",
+  "units": [
+    {
+      "id": "objc.context.initialize",
+      "kind": "objc_unit",
+      "implementation_state": "objc_compiled_unit",
+      "priority": "P0",
+      "feature": "core",
+      "scenario": "Verify the license and obtain a flag-configured singleton.",
+      "api_classes": [
+        "NvsStreamingContext"
+      ],
+      "api_members": [
+        "verifySdkLicenseFile:",
+        "sharedInstanceWithFlags:"
+      ],
+      "api_signatures": [
+        "+[NvsStreamingContext verifySdkLicenseFile:]",
+        "+[NvsStreamingContext sharedInstanceWithFlags:]"
+      ],
+      "requires": [],
+      "inputs": [
+        "NSString *licensePath",
+        "NvsStreamingContextFlag flags"
+      ],
+      "provides": [
+        "NvsStreamingContext *context"
+      ],
+      "resources": [
+        "R0"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "license path exists",
+        "verify before singleton",
+        "flags selected before Timeline creation"
+      ],
+      "failure": [
+        "license verification returns NO",
+        "singleton returns nil"
+      ],
+      "compose_after_units": [],
+      "requires_modules": [
+        "sdk-runtime"
+      ],
+      "requires_capabilities": [
+        "streaming-context"
+      ],
+      "lifecycle_hook": "sdk_init",
+      "ownership": "The app owns the NvsStreamingContext singleton returned by sharedInstanceWithFlags:; it is process-wide and must not be released by the caller. The SDK license file must stay readable for the singleton's lifetime.",
+      "cleanup": "Do not release the singleton. Release the license path string after verification. The singleton is torn down only on process exit; never call removeTimeline: on a context you did not create.",
+      "official_doc_routes": [
+        "license",
+        "sharedInstanceWithFlags"
+      ],
+      "code": "BOOL licensed = [NvsStreamingContext verifySdkLicenseFile:licensePath];\nif (!licensed) { return nil; }\nNvsStreamingContext *context = [NvsStreamingContext sharedInstanceWithFlags:flags];\nreturn context;"
+    },
+    {
+      "id": "objc.timeline.create",
+      "kind": "objc_unit",
+      "implementation_state": "objc_compiled_unit",
+      "priority": "P0",
+      "feature": "timeline",
+      "scenario": "Create an aligned Timeline within Context capacity.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline"
+      ],
+      "api_members": [
+        "createTimeline:videoFps:audioEditRes:"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext createTimeline:videoFps:audioEditRes:]",
+        "NvsVideoResolution",
+        "NvsAudioResolution",
+        "NvsRational"
+      ],
+      "requires": [
+        "context"
+      ],
+      "inputs": [
+        "unsigned int width",
+        "unsigned int height",
+        "NvsStreamingContextFlag flags"
+      ],
+      "provides": [
+        "NvsTimeline *timeline"
+      ],
+      "resources": [
+        "R0"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "width % 4 == 0",
+        "height % 2 == 0",
+        "pixel area within singleton flag capacity"
+      ],
+      "failure": [
+        "return nil without using child objects"
+      ],
+      "compose_after_units": [
+        "objc.context.initialize"
+      ],
+      "requires_modules": [
+        "sdk-runtime",
+        "timeline-preview"
+      ],
+      "requires_capabilities": [
+        "streaming-context",
+        "timeline"
+      ],
+      "lifecycle_hook": "timeline_created",
+      "ownership": "The NvsStreamingContext singleton owns the NvsTimeline it creates; the caller holds a non-owning reference and must release it via removeTimeline: before the context deallocates.",
+      "cleanup": "Call removeTimeline: on the context, then nil out the local timeline reference. Do not mutate the timeline after compile_started.",
+      "official_doc_routes": [
+        "Timeline creation",
+        "edit resolution"
+      ],
+      "code": "if (width % 4 != 0 || height % 2 != 0) { return nil; }\nuint64_t pixels = (uint64_t)width * (uint64_t)height;\nuint64_t limit = (flags & NvsStreamingContextFlag_Support4KEdit) ? (uint64_t)3840 * 2160 : (uint64_t)1920 * 1080;\nif (pixels > limit) { return nil; }\nNvsVideoResolution videoRes = {0};\nvideoRes.imageWidth = width;\nvideoRes.imageHeight = height;\nvideoRes.imagePAR = (NvsRational){1, 1};\nNvsRational fps = {30, 1};\nNvsAudioResolution audioRes = {48000, 2, NvsAudSmpFmt_S16};\nreturn [context createTimeline:&videoRes videoFps:&fps audioEditRes:&audioRes];"
+    },
+    {
+      "id": "objc.video.append-photo-asset",
+      "kind": "objc_unit",
+      "implementation_state": "objc_compiled_unit",
+      "priority": "P0",
+      "feature": "media-import",
+      "scenario": "Append a Photos asset by local identifier.",
+      "api_classes": [
+        "NvsVideoTrack",
+        "NvsVideoClip",
+        "PHAsset"
+      ],
+      "api_members": [
+        "appendClip:",
+        "localIdentifier"
+      ],
+      "api_signatures": [
+        "-[NvsVideoTrack appendClip:]"
+      ],
+      "requires": [
+        "video-track",
+        "authorized PHAsset"
+      ],
+      "inputs": [
+        "NvsVideoTrack *track",
+        "PHAsset *asset"
+      ],
+      "provides": [
+        "NvsVideoClip *clip"
+      ],
+      "resources": [
+        "R1"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "Photos permission",
+        "asset exists",
+        "identifier is non-empty"
+      ],
+      "failure": [
+        "appendClip returns nil"
+      ],
+      "compose_after_units": [
+        "objc.timeline.create"
+      ],
+      "requires_modules": [
+        "media-import"
+      ],
+      "requires_capabilities": [
+        "video-track-clip"
+      ],
+      "lifecycle_hook": "after_mutation_refresh",
+      "ownership": "The NvsVideoTrack (owned by the timeline) owns the appended NvsVideoClip; the caller holds a non-owning reference for subsequent clip configuration.",
+      "cleanup": "No explicit release for the clip; removing the track or timeline disposes it. Nil out the local clip reference after configuration.",
+      "official_doc_routes": [
+        "NvsVideoTrack appendClip"
+      ],
+      "code": "NSString *identifier = asset.localIdentifier;\nif (identifier.length == 0) { return nil; }\nNvsVideoClip *clip = [track appendClip:identifier];\nreturn clip;"
+    },
+    {
+      "id": "objc.preview.connect",
+      "kind": "objc_unit",
+      "implementation_state": "objc_compiled_unit",
+      "priority": "P0",
+      "feature": "preview",
+      "scenario": "Connect a Timeline to an attached, non-empty LiveWindow after view layout and before preview operations.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline",
+        "NvsLiveWindow"
+      ],
+      "api_members": [
+        "connectTimeline:withLiveWindow:"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext connectTimeline:withLiveWindow:]"
+      ],
+      "requires": [
+        "context",
+        "timeline",
+        "live-window"
+      ],
+      "inputs": [
+        "NvsStreamingContext *context",
+        "NvsTimeline *timeline",
+        "NvsLiveWindow *liveWindow"
+      ],
+      "provides": [
+        "connected-preview"
+      ],
+      "resources": [
+        "R3"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "all objects non-nil"
+      ],
+      "failure": [
+        "connection returns NO"
+      ],
+      "compose_after_units": [
+        "objc.timeline.create"
+      ],
+      "requires_modules": [
+        "timeline-preview"
+      ],
+      "requires_capabilities": [
+        "live-window"
+      ],
+      "lifecycle_hook": "live_window_bound",
+      "ownership": "The NvsStreamingContext owns the preview connection to the NvsLiveWindow; the LiveWindow view itself is owned by the UIViewController.",
+      "cleanup": "Disconnect by stopping playback / connecting nil before the LiveWindow leaves the view hierarchy; release the LiveWindow view in the view controller dealloc.",
+      "official_doc_routes": [
+        "connect Timeline LiveWindow"
+      ],
+      "code": "if (context == nil || timeline == nil || liveWindow == nil) { return NO; }\nif (liveWindow.window == nil || CGRectIsEmpty(liveWindow.bounds)) { return NO; }\nreturn [context connectTimeline:timeline withLiveWindow:liveWindow];"
+    },
+    {
+      "id": "objc.compile.custom-height",
+      "kind": "objc_unit",
+      "implementation_state": "objc_compiled_unit",
+      "priority": "P0",
+      "feature": "export",
+      "scenario": "Start a custom-height Timeline compile with required breakpoint-continuation cache configuration.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline"
+      ],
+      "api_members": [
+        "setCustomCompileVideoHeight:",
+        "compileTimeline:startTime:endTime:outputFilePath:videoResolutionGrade:videoBitrateGrade:compileConfigurations:flags:",
+        "NVS_COMPILE_ENABLE_BREAKPOINT_CONTINUATION",
+        "NVS_COMPILE_CACHE_FILE_PATH"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext setCustomCompileVideoHeight:]",
+        "-[NvsStreamingContext compileTimeline:startTime:endTime:outputFilePath:videoResolutionGrade:videoBitrateGrade:compileConfigurations:flags:]",
+        "NvsCompileVideoResolutionGradeCustom"
+      ],
+      "requires": [
+        "context",
+        "timeline",
+        "writable output",
+        "caller-owned writable compile cache directory"
+      ],
+      "inputs": [
+        "unsigned int outputHeight",
+        "NSString *outputPath",
+        "NSString *cachePath",
+        "BOOL isResuming"
+      ],
+      "provides": [
+        "compile-started"
+      ],
+      "resources": [
+        "R3"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "stop conflicting state",
+        "set height before compile",
+        "set both required breakpoint-continuation configuration entries",
+        "clear stale cache before a non-resume compile",
+        "handle delegate and clear cache after final outcomes"
+      ],
+      "failure": [
+        "compile start returns NO",
+        "delegate reports failure"
+      ],
+      "compose_after_units": [
+        "objc.timeline.create"
+      ],
+      "requires_modules": [
+        "export-compile"
+      ],
+      "requires_capabilities": [
+        "streaming-context",
+        "timeline"
+      ],
+      "lifecycle_hook": "compile_started",
+      "ownership": "The NvsStreamingContext owns the running compile. The caller owns both outputPath and cachePath; both must remain stable across a background-interrupted resume.",
+      "cleanup": "Clear stale cache before a non-resume compile. Retain cache only for a background cancellation that will resume. Remove cache after final success, final failure, user cancellation, or start/restart failure. Do not mutate the timeline during compile.",
+      "official_doc_routes": [
+        "custom compile height"
+      ],
+      "code": "if (outputPath.length == 0 || cachePath.length == 0) { return NO; }\nNSFileManager *fm = [NSFileManager defaultManager];\nif (!isResuming && [fm fileExistsAtPath:cachePath]) {\n    if (![fm removeItemAtPath:cachePath error:nil]) { return NO; }\n}\nif (![fm createDirectoryAtPath:cachePath withIntermediateDirectories:YES attributes:nil error:nil]) { return NO; }\nNSMutableDictionary *config = [NSMutableDictionary dictionary];\nconfig[NVS_COMPILE_ENABLE_BREAKPOINT_CONTINUATION] = @YES;\nconfig[NVS_COMPILE_CACHE_FILE_PATH] = cachePath;\n[context stop];\n[context setCustomCompileVideoHeight:outputHeight];\nreturn [context compileTimeline:timeline startTime:0 endTime:timeline.duration outputFilePath:outputPath videoResolutionGrade:NvsCompileVideoResolutionGradeCustom videoBitrateGrade:NvsCompileBitrateGradeHigh compileConfigurations:config flags:0];"
+    },
+    {
+      "id": "objc.timeline.remove",
+      "kind": "objc_unit",
+      "implementation_state": "objc_compiled_unit",
+      "priority": "P0",
+      "feature": "lifecycle",
+      "scenario": "Remove an editor-owned Timeline after stopping conflicts.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline"
+      ],
+      "api_members": [
+        "removeTimeline:"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext removeTimeline:]"
+      ],
+      "requires": [
+        "EDITOR_OWNED timeline"
+      ],
+      "inputs": [
+        "NvsTimeline *timeline"
+      ],
+      "provides": [
+        "released-timeline"
+      ],
+      "resources": [],
+      "threading": "main-thread",
+      "guards": [
+        "ownership is EDITOR_OWNED",
+        "stop conflicting engine state"
+      ],
+      "failure": [
+        "remove returns NO",
+        "host-owned Timeline removal denied"
+      ],
+      "compose_after_units": [
+        "objc.timeline.create"
+      ],
+      "requires_modules": [
+        "sdk-runtime"
+      ],
+      "requires_capabilities": [
+        "streaming-context",
+        "timeline"
+      ],
+      "lifecycle_hook": "destroy",
+      "ownership": "This unit returns an EDITOR_OWNED timeline to the context for disposal; ownership is transferred back to the context only transiently for removal.",
+      "cleanup": "After removeTimeline: returns YES, nil out the local timeline reference. Never reuse the disposed timeline object.",
+      "official_doc_routes": [
+        "remove Timeline"
+      ],
+      "code": "if (timeline == nil) { return YES; }\nreturn [context removeTimeline:timeline];"
+    },
+    {
+      "id": "swift.context.initialize",
+      "kind": "swift_unit",
+      "implementation_state": "swift_compiled_unit",
+      "priority": "P0",
+      "feature": "core",
+      "scenario": "Verify the license and obtain the flag-configured singleton through compiled Swift imports.",
+      "api_classes": [
+        "NvsStreamingContext"
+      ],
+      "api_members": [
+        "verifySdkLicenseFile:",
+        "sharedInstanceWithFlags:"
+      ],
+      "api_signatures": [
+        "+[NvsStreamingContext verifySdkLicenseFile:]",
+        "+[NvsStreamingContext sharedInstanceWithFlags:]"
+      ],
+      "requires": [],
+      "inputs": [
+        "String licensePath",
+        "NvsStreamingContextFlag flags"
+      ],
+      "provides": [
+        "NvsStreamingContext?"
+      ],
+      "resources": [
+        "R0"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "license path exists",
+        "verify before singleton",
+        "flags selected before Timeline creation"
+      ],
+      "failure": [
+        "license verification fails",
+        "singleton is nil"
+      ],
+      "compose_after_units": [],
+      "requires_modules": [
+        "sdk-runtime"
+      ],
+      "requires_capabilities": [
+        "streaming-context"
+      ],
+      "lifecycle_hook": "sdk_init",
+      "ownership": "The app owns the NvsStreamingContext singleton returned by sharedInstance(withFlags:); it is process-wide and must not be released by the caller. The SDK license file must stay readable for the singleton's lifetime.",
+      "cleanup": "Do not release the singleton. Release the license path string after verification. The singleton is torn down only on process exit.",
+      "official_doc_routes": [
+        "license",
+        "sharedInstanceWithFlags"
+      ],
+      "code": "guard NvsStreamingContext.verifySdkLicenseFile(licensePath) else { return nil }\nreturn NvsStreamingContext.sharedInstance(withFlags: flags)"
+    },
+    {
+      "id": "swift.timeline.create",
+      "kind": "swift_unit",
+      "implementation_state": "swift_compiled_unit",
+      "priority": "P0",
+      "feature": "timeline",
+      "scenario": "Create an aligned Timeline within Context capacity through compiled Swift imports.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline"
+      ],
+      "api_members": [
+        "createTimeline:videoFps:audioEditRes:"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext createTimeline:videoFps:audioEditRes:]"
+      ],
+      "requires": [
+        "context"
+      ],
+      "inputs": [
+        "UInt32 width",
+        "UInt32 height",
+        "NvsStreamingContextFlag flags"
+      ],
+      "provides": [
+        "NvsTimeline?"
+      ],
+      "resources": [
+        "R0"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "width % 4 == 0",
+        "height % 2 == 0",
+        "pixel area within singleton flag capacity"
+      ],
+      "failure": [
+        "return nil without using child objects"
+      ],
+      "compose_after_units": [
+        "swift.context.initialize"
+      ],
+      "requires_modules": [
+        "sdk-runtime",
+        "timeline-preview"
+      ],
+      "requires_capabilities": [
+        "streaming-context",
+        "timeline"
+      ],
+      "lifecycle_hook": "timeline_created",
+      "ownership": "The NvsStreamingContext singleton owns the NvsTimeline it creates; the caller holds a non-owning reference and must release it via remove(_:) before the context deallocates.",
+      "cleanup": "Call context.remove(timeline), then nil out the local timeline reference. Do not mutate the timeline after compile_started.",
+      "official_doc_routes": [
+        "Timeline creation",
+        "edit resolution"
+      ],
+      "code": "guard width % 4 == 0, height % 2 == 0 else { return nil }\nlet pixels = UInt64(width) * UInt64(height)\nlet supports4K = (flags.rawValue & NvsStreamingContextFlag_Support4KEdit.rawValue) != 0\nlet limit: UInt64 = supports4K ? 3_840 * 2_160 : 1_920 * 1_080\nguard pixels <= limit else { return nil }\nvar video = NvsVideoResolution(imageWidth: width, imageHeight: height, imagePAR: NvsRational(num: 1, den: 1), bitDepth: NvsVideoResolutionBitDepth(rawValue: 0))\nvar fps = NvsRational(num: 30, den: 1)\nvar audio = NvsAudioResolution(sampleRate: 48_000, sampleFormat: NvsAudioSampleFormat(rawValue: 1), channelCount: 2)\nreturn context.createTimeline(&video, videoFps: &fps, audioEditRes: &audio)"
+    },
+    {
+      "id": "swift.video.append-photo-asset",
+      "kind": "swift_unit",
+      "implementation_state": "swift_compiled_unit",
+      "priority": "P0",
+      "feature": "media-import",
+      "scenario": "Append a Photos asset local identifier through compiled Swift imports.",
+      "api_classes": [
+        "NvsVideoTrack",
+        "NvsVideoClip",
+        "PHAsset"
+      ],
+      "api_members": [
+        "appendClip:",
+        "localIdentifier"
+      ],
+      "api_signatures": [
+        "-[NvsVideoTrack appendClip:]"
+      ],
+      "requires": [
+        "video-track",
+        "authorized Photos asset"
+      ],
+      "inputs": [
+        "String identifier",
+        "NvsVideoTrack track"
+      ],
+      "provides": [
+        "NvsVideoClip?"
+      ],
+      "resources": [
+        "R1"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "Photos permission",
+        "identifier is non-empty"
+      ],
+      "failure": [
+        "appendClip returns nil"
+      ],
+      "compose_after_units": [
+        "swift.timeline.create"
+      ],
+      "requires_modules": [
+        "media-import"
+      ],
+      "requires_capabilities": [
+        "video-track-clip"
+      ],
+      "lifecycle_hook": "after_mutation_refresh",
+      "ownership": "The NvsVideoTrack (owned by the timeline) owns the appended NvsVideoClip; the caller holds a non-owning reference for subsequent clip configuration.",
+      "cleanup": "No explicit release for the clip; removing the track or timeline disposes it. Nil out the local clip reference after configuration.",
+      "official_doc_routes": [
+        "NvsVideoTrack appendClip"
+      ],
+      "code": "guard !identifier.isEmpty else { return nil }\nreturn track.appendClip(identifier)"
+    },
+    {
+      "id": "swift.preview.connect",
+      "kind": "swift_unit",
+      "implementation_state": "swift_compiled_unit",
+      "priority": "P0",
+      "feature": "preview",
+      "scenario": "Connect an attached, laid-out LiveWindow through compiled Swift imports.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline",
+        "NvsLiveWindow"
+      ],
+      "api_members": [
+        "connectTimeline:withLiveWindow:"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext connectTimeline:withLiveWindow:]"
+      ],
+      "requires": [
+        "context",
+        "timeline",
+        "live-window"
+      ],
+      "inputs": [
+        "NvsStreamingContext context",
+        "NvsTimeline timeline",
+        "NvsLiveWindow liveWindow"
+      ],
+      "provides": [
+        "connected-preview"
+      ],
+      "resources": [
+        "R3"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "LiveWindow belongs to a visible window",
+        "LiveWindow bounds are non-empty"
+      ],
+      "failure": [
+        "connection returns false"
+      ],
+      "compose_after_units": [
+        "swift.timeline.create"
+      ],
+      "requires_modules": [
+        "timeline-preview"
+      ],
+      "requires_capabilities": [
+        "live-window"
+      ],
+      "lifecycle_hook": "live_window_bound",
+      "ownership": "The NvsStreamingContext owns the preview connection to the NvsLiveWindow; the LiveWindow view itself is owned by the UIViewController.",
+      "cleanup": "Disconnect by stopping playback before the LiveWindow leaves the view hierarchy; release the LiveWindow view in the view controller dealloc.",
+      "official_doc_routes": [
+        "connect Timeline LiveWindow"
+      ],
+      "code": "guard liveWindow.window != nil, !liveWindow.bounds.isEmpty else { return false }\nreturn context.connect(timeline, with: liveWindow)"
+    },
+    {
+      "id": "swift.compile.custom-height",
+      "kind": "swift_unit",
+      "implementation_state": "swift_compiled_unit",
+      "priority": "P0",
+      "feature": "export",
+      "scenario": "Start custom-height Timeline compilation with required breakpoint-continuation cache configuration through compiled Swift imports.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline"
+      ],
+      "api_members": [
+        "setCustomCompileVideoHeight:",
+        "compileTimeline:startTime:endTime:outputFilePath:videoResolutionGrade:videoBitrateGrade:compileConfigurations:flags:",
+        "NVS_COMPILE_ENABLE_BREAKPOINT_CONTINUATION",
+        "NVS_COMPILE_CACHE_FILE_PATH"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext setCustomCompileVideoHeight:]",
+        "-[NvsStreamingContext compileTimeline:startTime:endTime:outputFilePath:videoResolutionGrade:videoBitrateGrade:compileConfigurations:flags:]",
+        "NvsCompileVideoResolutionGradeCustom"
+      ],
+      "requires": [
+        "context",
+        "timeline",
+        "writable output",
+        "caller-owned writable compile cache directory"
+      ],
+      "inputs": [
+        "UInt32 height",
+        "String outputPath",
+        "String cachePath",
+        "Bool isResuming"
+      ],
+      "provides": [
+        "compile-started"
+      ],
+      "resources": [
+        "R3"
+      ],
+      "threading": "main-thread",
+      "guards": [
+        "stop conflicting state",
+        "set height before compile",
+        "set both required breakpoint-continuation configuration entries",
+        "clear stale cache before a non-resume compile",
+        "handle delegate and clear cache after final outcomes"
+      ],
+      "failure": [
+        "compile start returns false",
+        "delegate reports failure"
+      ],
+      "compose_after_units": [
+        "swift.timeline.create"
+      ],
+      "requires_modules": [
+        "export-compile"
+      ],
+      "requires_capabilities": [
+        "streaming-context",
+        "timeline"
+      ],
+      "lifecycle_hook": "compile_started",
+      "ownership": "The NvsStreamingContext owns the running compile. The caller owns both outputPath and cachePath; both must remain stable across a background-interrupted resume.",
+      "cleanup": "Clear stale cache before a non-resume compile. Retain cache only for a background cancellation that will resume. Remove cache after final success, final failure, user cancellation, or start/restart failure. Do not mutate the timeline during compile.",
+      "official_doc_routes": [
+        "custom compile height"
+      ],
+      "code": "guard !outputPath.isEmpty, !cachePath.isEmpty else { return false }\nlet fileManager = FileManager.default\nif !isResuming, fileManager.fileExists(atPath: cachePath) {\n    do { try fileManager.removeItem(atPath: cachePath) } catch { return false }\n}\ndo { try fileManager.createDirectory(atPath: cachePath, withIntermediateDirectories: true) } catch { return false }\nlet config = NSMutableDictionary()\nconfig[NVS_COMPILE_ENABLE_BREAKPOINT_CONTINUATION] = true as NSNumber\nconfig[NVS_COMPILE_CACHE_FILE_PATH] = cachePath\ncontext.stop()\ncontext.setCustomCompileVideoHeight(height)\nreturn context.compileTimeline(timeline, startTime: 0, endTime: timeline.duration, outputFilePath: outputPath, videoResolutionGrade: NvsCompileVideoResolutionGradeCustom, videoBitrateGrade: NvsCompileBitrateGradeHigh, compileConfigurations: config, flags: 0)"
+    },
+    {
+      "id": "swift.timeline.remove",
+      "kind": "swift_unit",
+      "implementation_state": "swift_compiled_unit",
+      "priority": "P0",
+      "feature": "lifecycle",
+      "scenario": "Remove an editor-owned Timeline through compiled Swift imports.",
+      "api_classes": [
+        "NvsStreamingContext",
+        "NvsTimeline"
+      ],
+      "api_members": [
+        "removeTimeline:"
+      ],
+      "api_signatures": [
+        "-[NvsStreamingContext removeTimeline:]"
+      ],
+      "requires": [
+        "EDITOR_OWNED timeline"
+      ],
+      "inputs": [
+        "NvsTimeline timeline"
+      ],
+      "provides": [
+        "released-timeline"
+      ],
+      "resources": [],
+      "threading": "main-thread",
+      "guards": [
+        "ownership is EDITOR_OWNED",
+        "stop conflicting engine state"
+      ],
+      "failure": [
+        "remove returns false",
+        "host-owned Timeline removal denied"
+      ],
+      "compose_after_units": [
+        "swift.timeline.create"
+      ],
+      "requires_modules": [
+        "sdk-runtime"
+      ],
+      "requires_capabilities": [
+        "streaming-context",
+        "timeline"
+      ],
+      "lifecycle_hook": "destroy",
+      "ownership": "This unit returns an EDITOR_OWNED timeline to the context for disposal; ownership is transferred back to the context only transiently for removal.",
+      "cleanup": "After context.remove(timeline) returns true, nil out the local timeline reference. Never reuse the disposed timeline object.",
+      "official_doc_routes": [
+        "remove Timeline"
+      ],
+      "code": "context.stop()\nreturn context.remove(timeline)"
+    }
+  ],
+  "recipes": [
+    {
+      "id": "recipe.timeline-basic",
+      "kind": "recipe",
+      "implementation_state": "generated_module",
+      "steps": [
+        "objc.context.initialize",
+        "objc.timeline.create",
+        "objc.preview.connect"
+      ],
+      "swift_steps": [
+        "swift.context.initialize",
+        "swift.timeline.create",
+        "swift.preview.connect"
+      ],
+      "compose_after_units": [],
+      "provides": [
+        "previewable-timeline"
+      ]
+    },
+    {
+      "id": "recipe.photo-clip-preview",
+      "kind": "recipe",
+      "implementation_state": "generated_module",
+      "steps": [
+        "objc.context.initialize",
+        "objc.timeline.create",
+        "objc.video.append-photo-asset",
+        "objc.preview.connect"
+      ],
+      "swift_steps": [
+        "swift.context.initialize",
+        "swift.timeline.create",
+        "swift.video.append-photo-asset",
+        "swift.preview.connect"
+      ],
+      "compose_after_units": [],
+      "provides": [
+        "photo-clip-preview"
+      ]
+    },
+    {
+      "id": "recipe.custom-compile",
+      "kind": "recipe",
+      "implementation_state": "generated_module",
+      "steps": [
+        "objc.context.initialize",
+        "objc.timeline.create",
+        "objc.compile.custom-height"
+      ],
+      "swift_steps": [
+        "swift.context.initialize",
+        "swift.timeline.create",
+        "swift.compile.custom-height"
+      ],
+      "compose_after_units": [],
+      "provides": [
+        "compile-started"
+      ]
+    },
+    {
+      "id": "recipe.timeline-lifecycle",
+      "kind": "recipe",
+      "implementation_state": "generated_module",
+      "steps": [
+        "objc.context.initialize",
+        "objc.timeline.create",
+        "objc.timeline.remove"
+      ],
+      "swift_steps": [
+        "swift.context.initialize",
+        "swift.timeline.create",
+        "swift.timeline.remove"
+      ],
+      "compose_after_units": [],
+      "provides": [
+        "timeline-lifecycle"
+      ]
+    },
+    {
+      "id": "recipe.asset-install-apply",
+      "kind": "recipe",
+      "implementation_state": "contract_only",
+      "steps": [],
+      "compose_after_units": [],
+      "provides": [
+        "applied-material"
+      ]
+    },
+    {
+      "id": "recipe.capture-record",
+      "kind": "recipe",
+      "implementation_state": "contract_only",
+      "steps": [],
+      "compose_after_units": [],
+      "provides": [
+        "recorded-file"
+      ]
+    },
+    {
+      "id": "recipe.ar-scene",
+      "kind": "recipe",
+      "implementation_state": "contract_only",
+      "steps": [],
+      "compose_after_units": [],
+      "provides": [
+        "visible-ar-preview"
+      ]
+    }
+  ]
+}

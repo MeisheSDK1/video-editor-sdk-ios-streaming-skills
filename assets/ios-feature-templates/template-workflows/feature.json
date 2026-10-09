@@ -1,0 +1,1 @@
+{"id":"template-workflows","controllers":["TemplateController"],"resource_keys":["R1","R10"],"purpose":"Install verified templates, inspect slots, replace media, preview, and export."}

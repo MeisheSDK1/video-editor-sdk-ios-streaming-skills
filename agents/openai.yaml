@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meishe iOS Streaming SDK"
+  short_description: "Build and troubleshoot Meishe iOS video apps."
+  default_prompt: "Use $meishe-sdk-ios-streaming to build or troubleshoot an iOS app with Meishe Streaming SDK APIs, resources, and evidence-aware validation."

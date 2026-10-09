@@ -1,0 +1,1 @@
+{"id":"preview-playback","controllers":["PlaybackController"],"resource_keys":["R3"],"purpose":"Connect LiveWindow and coordinate playback, seek, mutation, and empty state."}
